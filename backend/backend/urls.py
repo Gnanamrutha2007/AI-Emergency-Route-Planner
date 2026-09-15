@@ -4,7 +4,7 @@ from django.contrib import admin
 from django.urls import path
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-
+from .views import predict_traffic, get_hospitals, decrement_hospital_bed
 # Load the trained AI model once on server start
 MODEL_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'traffic_model.pkl')
 model = joblib.load(MODEL_PATH)
@@ -39,4 +39,7 @@ def predict_traffic(request):
 urlpatterns = [
     path('admin/', admin.site.urls),
     path('api/predict-traffic/', predict_traffic),
+    path('api/hospitals/', get_hospitals, name='get_hospitals'),
+    path('api/decrement-bed/', decrement_hospital_bed, name='decrement_hospital_bed'),
 ]
+
