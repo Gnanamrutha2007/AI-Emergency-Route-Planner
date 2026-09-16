@@ -51,6 +51,7 @@ def get_hospitals(request):
     return JsonResponse(formatted_hospitals, safe=False)
 
 
+@csrf_exempt
 def decrement_hospital_bed(request):
     if request.method == 'POST':
         try:
