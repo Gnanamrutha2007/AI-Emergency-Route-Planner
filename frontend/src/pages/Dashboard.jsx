@@ -30,15 +30,18 @@ export default function Dashboard() {
   const [weatherText, setWeatherText] = useState("Analyzing local atmosphere...");
   const [weatherVal, setWeatherVal] = useState("0");
   
-  const [aiResult, setAiResult] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [activeRoute, setActiveRoute] = useState(null);
+const [aiResult, setAiResult] = useState(null);
+const [loading, setLoading] = useState(false);
+
+const [aStarRoute, setAStarRoute] = useState(null);
+const [activeRoute, setActiveRoute] = useState(null);
   const [routeMetrics, setRouteMetrics] = useState({ distance: 0, time: 0 });
   const [navSteps, setNavSteps] = useState([]); 
   const [selectedHospital, setSelectedHospital] = useState(null);
   
   const [unitStatus, setUnitStatus] = useState("Standby");
   const [dispatchHistory, setDispatchHistory] = useState([]);
+  const [emergencyRequests, setEmergencyRequests] = useState([]);
 
   const fetchHospitals = () => {
     fetch("http://127.0.0.1:8000/api/hospitals/")
@@ -46,11 +49,24 @@ export default function Dashboard() {
       .then(data => setHospitals(data))
       .catch(err => console.error("Failed to fetch hospitals:", err));
   };
-
+  const fetchEmergencyRequests = () => {
+    fetch("http://127.0.0.1:8000/api/emergency-requests/list/")
+      .then(res => res.json())
+      .then(data => setEmergencyRequests(data))
+      .catch(err =>
+        console.error("Failed to fetch emergency requests:", err)
+      );
+  };
   useEffect(() => {
     fetchHospitals();
+    fetchEmergencyRequests();
   }, []);
-
+  useEffect(() => {
+  if (emergencyRequests.length > 0) {
+    const latestRequest = emergencyRequests[0];
+    setSeverity(String(latestRequest.severity));
+  }
+}, [emergencyRequests]);
   const fetchLiveWeather = async (lat, lon) => {
     try {
       const res = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=precipitation`);
@@ -120,7 +136,40 @@ export default function Dashboard() {
       }
     }, 800);
   };
+  const fetchAStarRoute = async (start, goal, trafficLevel) => {
+  try {
+    const response = await fetch(
+      "http://127.0.0.1:8000/api/calculate-route/",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          start,
+          goal,
+          traffic_level: trafficLevel,
+        }),
+      }
+    );
 
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.message || "A* route calculation failed");
+    }
+
+    console.log("A* Route:", data);
+
+    setAStarRoute(data.route);
+
+    return data.route;
+  } catch (error) {
+    console.error("A* Route Error:", error);
+    setAStarRoute(null);
+    return null;
+  }
+};
   const fetchStreetRoute = async (start, end) => {
     const url = `https://router.project-osrm.org/route/v1/driving/${start[1]},${start[0]};${end[1]},${end[0]}?overview=full&geometries=geojson&steps=true`;
     const res = await fetch(url);
@@ -154,19 +203,47 @@ export default function Dashboard() {
       const res = await fetch("http://127.0.0.1:8000/api/predict-traffic/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ hour: new Date().getHours(), weather: parseInt(weatherVal), severity: parseInt(severity) }),
+        body: JSON.stringify({
+         hour: new Date().getHours(),
+         weather: parseInt(weatherVal),
+         severity: emergencyRequests.length > 0
+         ? Number(emergencyRequests[0].severity)
+         : parseInt(severity)
+        }),
       });
       const data = await res.json();
       setAiResult(data);
 
       let best = null;
-      let minDist = Infinity;
-      hospitals.forEach(h => {
-        if (h.beds > 0) {
-          const d = calculateDistance(ambulanceLocation, h.coords);
-          if (d < minDist) { minDist = d; best = h; }
-        }
-      });
+let bestScore = Infinity;
+
+const trafficLevel = Number(data.traffic_level || 0);
+
+hospitals.forEach((h) => {
+  if (h.beds > 0) {
+    const distance = calculateDistance(
+      ambulanceLocation,
+      h.coords
+    );
+
+    // Traffic adjustment
+    const trafficFactor =
+      trafficLevel === 2 ? 1.5 :
+      trafficLevel === 1 ? 1.2 :
+      1.0;
+
+    // More available ICU beds slightly improve the hospital score
+    const bedFactor = 1 + (h.beds / 20);
+
+    const score =
+      (distance * trafficFactor) / bedFactor;
+
+    if (score < bestScore) {
+      bestScore = score;
+      best = h;
+    }
+  }
+});
 
       if (!best) {
         alert("All nearby hospitals are at full capacity!");
@@ -175,9 +252,20 @@ export default function Dashboard() {
       }
 
       setSelectedHospital(best);
-      setUnitStatus("En Route (Live Nav) 🧭");
+setUnitStatus("En Route (Live Nav) 🧭");
 
-      await fetchStreetRoute(ambulanceLocation, best.coords);
+// Calculate optimized route using A*
+const optimizedRoute = await fetchAStarRoute(
+  ambulanceLocation,
+  best.coords,
+  trafficLevel
+);
+
+// Then use the actual road network route from OSRM
+await fetchStreetRoute(
+  ambulanceLocation,
+  best.coords
+);
 
       let updatedRemainingBeds = best.beds - 1;
       try {
@@ -263,9 +351,26 @@ export default function Dashboard() {
               </Marker>
             ))}
 
-            {activeRoute && (
-              <Polyline positions={activeRoute} color={aiResult?.traffic_level === 2 ? "#e74c3c" : "#3498db"} weight={6} opacity={0.8} />
-            )}
+            {/* A* Optimized Route */}
+{aStarRoute && (
+  <Polyline
+    positions={aStarRoute}
+    color="#f39c12"
+    weight={4}
+    opacity={0.8}
+    dashArray="8, 8"
+  />
+)}
+
+{/* Actual Road Route */}
+{activeRoute && (
+  <Polyline
+    positions={activeRoute}
+    color={aiResult?.traffic_level === 2 ? "#e74c3c" : "#3498db"}
+    weight={6}
+    opacity={0.8}
+  />
+)}
           </MapContainer>
         </div>
 
@@ -292,7 +397,70 @@ export default function Dashboard() {
               {loading ? "Allocating Beds & Routing..." : "⚡ Start Live Navigation Dispatch"}
             </button>
           </div>
+          {/* AI Traffic Intelligence */}
+{aiResult && (
+  <div
+    style={{
+      background: "white",
+      padding: "18px",
+      borderRadius: "12px",
+      boxShadow: "0 4px 12px rgba(0,0,0,0.05)",
+      border: "1px solid #eaeaea",
+      borderLeft: "5px solid #f39c12",
+    }}
+  >
+    <h3
+      style={{
+        margin: "0 0 10px 0",
+        fontSize: "15px",
+        color: "#2c3e50",
+      }}
+    >
+      🤖 AI Traffic Intelligence
+    </h3>
 
+    <div
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        gap: "15px",
+      }}
+    >
+      <div>
+        <span
+          style={{
+            display: "block",
+            fontSize: "11px",
+            color: "#7f8c8d",
+          }}
+        >
+          PREDICTED TRAFFIC
+        </span>
+
+        <strong style={{ fontSize: "16px" }}>
+          {aiResult.prediction_text}
+        </strong>
+      </div>
+
+      <div>
+        <span
+          style={{
+            display: "block",
+            fontSize: "11px",
+            color: "#7f8c8d",
+          }}
+        >
+          RECOMMENDED SPEED
+        </span>
+
+        <strong style={{ fontSize: "16px" }}>
+          {aiResult.recommended_speed_kmh} km/h
+        </strong>
+      </div>
+    </div>
+  </div>
+)}
           {/* AI Intelligence & Turn-by-Turn Guidance */}
           {aiResult && selectedHospital && (
             <div style={{ background: "white", padding: "20px", borderRadius: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)", border: "1px solid #eaeaea", borderLeft: "5px solid #2980b9", maxHeight: "280px", overflowY: "auto" }}>
@@ -327,6 +495,92 @@ export default function Dashboard() {
             {dispatchHistory.map(item => (
               <div key={item.id} style={{ background: "#f8f9fa", padding: "8px 12px", borderRadius: "6px", border: "1px solid #ddd", fontSize: "12px" }}>
                 <span style={{ color: "#2980b9" }}>{item.time}</span> — <strong>{item.hospital}</strong> ({item.remainingBeds} ICU beds remaining)
+              </div>
+            ))}
+          </div>
+        )}
+            </div>
+
+      {/* Emergency Requests from Database */}
+      <div
+        style={{
+          marginTop: "24px",
+          background: "white",
+          padding: "20px",
+          borderRadius: "12px",
+          boxShadow: "0 2px 8px rgba(0,0,0,0.05)",
+          border: "1px solid #eaeaea",
+        }}
+      >
+        <h3
+          style={{
+            margin: "0 0 15px 0",
+            fontSize: "15px",
+            color: "#2c3e50",
+          }}
+        >
+          🚑 Emergency Requests
+        </h3>
+
+        {emergencyRequests.length === 0 ? (
+          <p
+            style={{
+              margin: 0,
+              fontSize: "13px",
+              color: "#7f8c8d",
+            }}
+          >
+            No emergency requests found.
+          </p>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              gap: "10px",
+            }}
+          >
+            {emergencyRequests.map((request) => (
+              <div
+                key={request.id}
+                style={{
+                  padding: "12px",
+                  borderRadius: "8px",
+                  background: "#f8f9fa",
+                  border: "1px solid #ddd",
+                }}
+              >
+                <strong>
+                  Patient: {request.patient_name}
+                </strong>
+
+                <div style={{ marginTop: "5px", fontSize: "13px" }}>
+                  Emergency: {request.emergency_type}
+                </div>
+
+                <div style={{ fontSize: "13px" }}>
+                  Severity: {request.severity}
+                </div>
+
+                <div style={{ fontSize: "13px" }}>
+                  Location: {request.location}
+                </div>
+
+                <div style={{ fontSize: "13px" }}>
+                  Status: {request.status}
+                </div>
+
+                {request.notes && (
+                  <div
+                    style={{
+                      marginTop: "5px",
+                      fontSize: "13px",
+                      color: "#7f8c8d",
+                    }}
+                  >
+                    Notes: {request.notes}
+                  </div>
+                )}
               </div>
             ))}
           </div>

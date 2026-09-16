@@ -8,7 +8,23 @@ class Hospital(models.Model):
     status = models.CharField(max_length=50, default="Optimal")
 
     class Meta:
-        app_label = 'backend'  # Forces Django to recognize this model under the backend app
+        app_label = 'backend'
 
     def __str__(self):
         return f"{self.name} ({self.icu_beds} beds)"
+
+
+class EmergencyRequest(models.Model):
+    patient_name = models.CharField(max_length=255)
+    emergency_type = models.CharField(max_length=100)
+    severity = models.IntegerField(default=1)
+    location = models.CharField(max_length=255)
+    notes = models.TextField(blank=True)
+    status = models.CharField(max_length=50, default="Pending")
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        app_label = 'backend'
+
+    def __str__(self):
+        return f"{self.patient_name} - {self.emergency_type}"
