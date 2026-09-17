@@ -469,3 +469,70 @@ def a_star_route(start, goal, traffic_level=0):
                 )
 
     return []
+# ============================================================
+# ROAD-BLOCK / ROAD-CONDITION ANALYSIS
+# ============================================================
+
+@csrf_exempt
+def check_road_conditions(request):
+
+    if request.method == 'POST':
+        try:
+            data = json.loads(request.body)
+
+            traffic_level = int(
+                data.get('traffic_level', 0)
+            )
+
+            weather = int(
+                data.get('weather', 0)
+            )
+
+            severity = int(
+                data.get('severity', 1)
+            )
+
+            # Prototype road-condition rules
+            road_block = False
+            road_condition = "Clear Road"
+            risk_level = "Low"
+
+            # Heavy traffic indicates possible congestion
+            if traffic_level == 2:
+                road_condition = "Heavy Congestion"
+                risk_level = "High"
+
+            # Weather can increase road risk
+            if weather == 1:
+                road_condition = "Poor Weather Condition"
+                risk_level = "Moderate"
+
+            # Critical emergency + heavy traffic
+            if traffic_level == 2 and severity == 2:
+                road_block = True
+                road_condition = "Possible Road Block"
+                risk_level = "High"
+
+            return JsonResponse({
+                "status": "success",
+                "road_block": road_block,
+                "road_condition": road_condition,
+                "risk_level": risk_level,
+                "traffic_level": traffic_level,
+                "weather": weather,
+                "severity": severity
+            })
+
+        except Exception as e:
+            return JsonResponse(
+                {
+                    "status": "error",
+                    "message": str(e)
+                },
+                status=400
+            )
+
+    return JsonResponse(
+        {"error": "Only POST allowed"},
+        status=405
+    )

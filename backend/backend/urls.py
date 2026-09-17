@@ -11,7 +11,8 @@ from .views import (
     decrement_hospital_bed,
     create_emergency_request,
     get_emergency_requests,
-    a_star_route
+    a_star_route,
+    check_road_conditions
 )
 
 
@@ -175,5 +176,11 @@ urlpatterns = [
         'api/emergency-requests/list/',
         get_emergency_requests,
         name='get_emergency_requests'
+    ),
+    # Road-block / road-condition analysis
+    path(
+        'api/road-conditions/',
+        check_road_conditions,
+        name='check_road_conditions'
     ),
 ]
