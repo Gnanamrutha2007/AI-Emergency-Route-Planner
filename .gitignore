@@ -25,3 +25,19 @@ dist/
 # OS
 .DS_Store
 Thumbs.db
+# All environment files, including nested ones
+.env
+.env.*
+**/.env
+**/.env.*
+
+# Python model files
+*.pkl
+*.pt
+*.h5
+
+# Frontend dependencies and build output
+**/node_modules/
+**/dist/
+# Local database files
+*.sqlite3
